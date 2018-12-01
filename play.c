@@ -44,6 +44,9 @@ PAL_GameUpdate(
    WORD            wEventObjectID, wDir;
    int             i;
    LPEVENTOBJECT   p;
+    
+   if(flagCHEAT)
+      return;
 
    //
    // Check for trigger events
