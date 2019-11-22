@@ -298,16 +298,13 @@ mad_fixed_t mad_f_mul_inline(mad_fixed_t x, mad_fixed_t y)
 /* --- MIPS ---------------------------------------------------------------- */
 
 # elif defined(FPM_MIPS)
-
-/*
- * This MIPS version is fast and accurate; the disposition of the least
- * significant bit depends on OPT_ACCURACY via mad_f_scale64().
- */
-#  define MAD_F_MLX(hi, lo, x, y)  \
-    asm ("mult	%2,%3"  \
-	 : "=l" (lo), "=h" (hi)  \
-	 : "%r" (x), "r" (y))
-
+    typedef unsigned int u64_di_t __attribute__ ((mode (DI)));
+# define MAD_F_MLX(hi, lo, x, y) \
+    do { \
+        u64_di_t __ll = (u64_di_t) (x) * (y); \
+        hi = __ll >> 32; \
+        lo = __ll; \
+    } while (0)
 # if defined(HAVE_MADD_ASM)
 #  define MAD_F_MLA(hi, lo, x, y)  \
     asm ("madd	%2,%3"  \

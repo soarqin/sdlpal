@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SDLPAL
+Comment=SDLPAL
+Exec=sdlpal-dingoo
+Terminal=false
+Type=Application
+StartupNotify=true
+Icon=sdlpal
+Categories=games;
