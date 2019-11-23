@@ -59,7 +59,7 @@ opk: $(TARGET).opk
 
 $(TARGET).opk: $(TARGET)
 	echo "  OPK     $@"
-	$(CMD)mksquashfs external/common/* $(OPK_EXTRA_DATA) $(TARGET) $@ -all-root -noappend -no-exports -no-xattrs -no-progress >/dev/null
+	$(CMD)mksquashfs data/* external/common/* $(OPK_EXTRA_DATA) $(TARGET) $@ -all-root -noappend -no-exports -no-xattrs -no-progress >/dev/null
 
 $(TARGET): $(OBJFILES)
 	@echo [LD] $@
