@@ -495,13 +495,13 @@ UTIL_OpenFileForMode(
 
 --*/
 {
+	FILE *fp = NULL;
 	//
 	// If lpszFileName is an absolute path, use its last element as filename
 	//
 	if (UTIL_IsAbsolutePath(lpszFileName))
 	{
 		char *temp = strdup(lpszFileName), *filename = temp;
-		FILE *fp = NULL;
 		for (char *next = strpbrk(filename, PAL_PATH_SEPARATORS); next; next = strpbrk(filename = next + 1, PAL_PATH_SEPARATORS));
 		if (*filename)
 		{
@@ -511,7 +511,8 @@ UTIL_OpenFileForMode(
 		free(temp);
 		return fp;
 	}
-
+	fp = UTIL_OpenFileAtPathForMode(gConfig.pszModPath, lpszFileName, szMode);
+	if (fp != NULL) return fp;
 	return UTIL_OpenFileAtPathForMode(gConfig.pszGamePath, lpszFileName, szMode);
 }
 
