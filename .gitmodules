@@ -7,6 +7,6 @@
 [submodule "3rd/mingw-std-threads"]
 	path = 3rd/mingw-std-threads
 	url = https://github.com/sdlpal/mingw-std-threads.git
-[submodule "dingoo/external"]
-	path = dingoo/external
+[submodule "opendingux/external"]
+	path = opendingux/external
 	url = https://github.com/soarqin/sdlpal_external
