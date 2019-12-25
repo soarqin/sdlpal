@@ -47,7 +47,6 @@ typedef struct tagOPUSPLAYER
     int              iBufPos, iBufLen;
 
     void            *resampler[2];
-    int              iLink;
     int              fReady;
     int              fRewind;
     int              fUseResampler;
@@ -88,7 +87,6 @@ static void OPUS_Cleanup(LPOPUSPLAYER player)
     int i;
     for (i = 0; i < gConfig.iAudioChannels; i++) resampler_clear(player->resampler[0]);
     player->iBufPos = player->iBufLen = 0;
-    player->iLink = -1;
     player->fReady = FALSE;
     player->fRewind = FALSE;
 }
@@ -98,7 +96,6 @@ static BOOL OPUS_Rewind(LPOPUSPLAYER player)
 {
     OPUS_Cleanup(player);
     op_raw_seek(player->fp, 0);
-    player->iLink = op_current_link(player->fp);
     player->fUseResampler = 48000 != gConfig.iSampleRate;
     if (player->fUseResampler) {
         int i;
@@ -290,7 +287,6 @@ OPUS_Init(
         player->Play = OPUS_Play;
         player->Shutdown = OPUS_Shutdown;
 
-        player->iLink = -1;
         player->iMusic = -1;
 
         player->resampler[0] = resampler_create();
