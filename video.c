@@ -20,6 +20,7 @@
 //
 #include <float.h>
 #include "main.h"
+#include "threading.h"
 
 // Screen buffer
 SDL_Surface              *gpScreen           = NULL;
@@ -76,7 +77,7 @@ SDL_ScaleMode VIDEO_GetScaleMode() {
 }
 #endif
 
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
 void VIDEO_SetupTouchArea(int window_w, int window_h, int draw_w, int draw_h)
 {
 	gOverlayRect.x = (window_w - draw_w) / 2;
@@ -88,7 +89,7 @@ void VIDEO_SetupTouchArea(int window_w, int window_h, int draw_w, int draw_h)
 #endif
 }
 
-#if !SDL_VERSION_ATLEAST(3, 0, 0)
+#if !SDL_VERSION_ATLEAST(3,0,0)
 #define SDL_SoftStretch SDL_UpperBlit
 #endif
 static SDL_Texture *VIDEO_CreateTexture(int width, int height)
@@ -541,6 +542,48 @@ VIDEO_UpdateScreen(
    if (g_bRenderPaused)
    {
 	   return;
+   }
+
+   //
+   // In dual-threaded mode, hand the frame to the render thread via the
+   // triple buffer instead of rendering it directly.
+   //
+   if (g_bThreadedMode)
+   {
+      FRAMEBUFFER_SLOT *pSlot = THREADING_AcquireWriteSlot();
+      if (pSlot != NULL)
+      {
+         //
+         // Copy pixel data into the slot's SDL_Surface (320×200 = 64 000 bytes).
+         //
+         memcpy(pSlot->pSurface->pixels, gpScreen->pixels, 320 * 200);
+
+         //
+         // Set the current 256-colour palette on the slot surface so the
+         // render thread can blit directly without an intermediate copy.
+         //
+#if SDL_VERSION_ATLEAST(3,0,0)
+         SDL_SetPaletteColors(pSlot->pPalette, gpPalette->colors, 0, 256);
+#else
+         SDL_SetPaletteColors(pSlot->pSurface->format->palette,
+            gpPalette->colors, 0, 256);
+#endif
+
+         //
+         // Capture shake state and advance the counter so the logic thread's
+         // view of shake time remains consistent.
+         //
+         pSlot->wShakeTime = g_wShakeTime;
+         pSlot->wShakeLevel = g_wShakeLevel;
+         pSlot->bDirectColor = FALSE;
+         if (g_wShakeTime != 0)
+         {
+            g_wShakeTime--;
+         }
+
+         THREADING_PublishFrame();
+      }
+      return;
    }
 #endif
 
@@ -1091,6 +1134,7 @@ VIDEO_SwitchScreen(
 
    for (i = 0; i < 6; i++)
    {
+      if (g_bThreadQuit) break;
       for (j = rgIndex[i]; j < gpScreen->pitch * gpScreen->h; j += 6)
       {
          ((LPBYTE)(gpScreenBak->pixels))[j] = ((LPBYTE)(gpScreen->pixels))[j];
@@ -1104,23 +1148,46 @@ VIDEO_SwitchScreen(
       dstrect.w = gpScreenReal->w;
       dstrect.h = screenRealHeight;
 
-	  if (SDL_MUSTLOCK(gpScreenReal))
-	  {
-		  if (SDL_LockSurface(gpScreenReal) < 0)
-			  return;
-	  }
-
-      SDL_SoftStretch(gpScreenBak, NULL, gpScreenReal, &dstrect);
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-      gRenderBackend.RenderCopy();
+#if SDL_VERSION_ATLEAST(2,0,0)
+      if (g_bThreadedMode)
+      {
+         FRAMEBUFFER_SLOT *pSlot = THREADING_AcquireWriteSlot();
+         if (pSlot != NULL)
+         {
+            memcpy(pSlot->pSurface->pixels, gpScreenBak->pixels, 320 * 200);
+#if SDL_VERSION_ATLEAST(3,0,0)
+            SDL_SetPaletteColors(pSlot->pPalette, gpPalette->colors, 0, 256);
 #else
-      SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
+            SDL_SetPaletteColors(pSlot->pSurface->format->palette,
+               gpPalette->colors, 0, 256);
+#endif
+            pSlot->wShakeTime = 0;
+            pSlot->wShakeLevel = 0;
+            pSlot->bDirectColor = FALSE;
+            THREADING_PublishFrame();
+         }
+      }
+      else
+#endif
+      {
+         if (SDL_MUSTLOCK(gpScreenReal))
+         {
+            if (SDL_LockSurface(gpScreenReal) < 0)
+               return;
+         }
+
+         SDL_SoftStretch(gpScreenBak, NULL, gpScreenReal, &dstrect);
+#if SDL_VERSION_ATLEAST(2,0,0)
+         gRenderBackend.RenderCopy();
+#else
+         SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
 #endif
 
-	  if (SDL_MUSTLOCK(gpScreenReal))
-	  {
-		  SDL_UnlockSurface(gpScreenReal);
-	  }
+         if (SDL_MUSTLOCK(gpScreenReal))
+         {
+            SDL_UnlockSurface(gpScreenReal);
+         }
+      }
 
       UTIL_Delay(wSpeed);
    }
@@ -1158,10 +1225,15 @@ VIDEO_FadeScreen(
    //
    // Lock surface if needed
    //
-   if (SDL_MUSTLOCK(gpScreenReal))
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (!g_bThreadedMode)
+#endif
    {
-      if (SDL_LockSurface(gpScreenReal) < 0)
-         return;
+      if (SDL_MUSTLOCK(gpScreenReal))
+      {
+         if (SDL_LockSurface(gpScreenReal) < 0)
+            return;
+      }
    }
 
    if (!bScaleScreen)
@@ -1177,11 +1249,13 @@ VIDEO_FadeScreen(
 
    for (i = 0; i < 12; i++)
    {
+      if (g_bThreadQuit) break;
       for (j = 0; j < 6; j++)
       {
          PAL_ProcessEvent();
          while (!SDL_TICKS_PASSED(SDL_GetTicks(), time))
          {
+            if (g_bThreadQuit) break;
             PAL_ProcessEvent();
             SDL_Delay(5);
          }
@@ -1214,6 +1288,31 @@ VIDEO_FadeScreen(
          //
          // Draw the backup buffer to the screen
          //
+#if SDL_VERSION_ATLEAST(2,0,0)
+         if (g_bThreadedMode)
+         {
+             FRAMEBUFFER_SLOT *pSlot = THREADING_AcquireWriteSlot();
+            if (pSlot != NULL)
+            {
+               memcpy(pSlot->pSurface->pixels, gpScreenBak->pixels, 320 * 200);
+#if SDL_VERSION_ATLEAST(3,0,0)
+               SDL_SetPaletteColors(pSlot->pPalette, gpPalette->colors, 0, 256);
+#else
+               SDL_SetPaletteColors(pSlot->pSurface->format->palette,
+                  gpPalette->colors, 0, 256);
+#endif
+               pSlot->wShakeTime = g_wShakeTime;
+               pSlot->wShakeLevel = g_wShakeLevel;
+               pSlot->bDirectColor = FALSE;
+               if (g_wShakeTime != 0)
+               {
+                  g_wShakeTime--;
+               }
+               THREADING_PublishFrame();
+            }
+         }
+         else
+#endif
          if (g_wShakeTime != 0)
          {
             //
@@ -1254,7 +1353,7 @@ VIDEO_FadeScreen(
             dstrect.h = g_wShakeLevel * screenRealHeight / gpScreen->h;
 
             SDL_FillRect(gpScreenReal, &dstrect, 0);
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
             gRenderBackend.RenderCopy();
 #else
 			SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
@@ -1269,7 +1368,7 @@ VIDEO_FadeScreen(
             dstrect.h = screenRealHeight;
 
             SDL_SoftStretch(gpScreenBak, NULL, gpScreenReal, &dstrect);
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
             gRenderBackend.RenderCopy();
 #else
             SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
@@ -1278,9 +1377,14 @@ VIDEO_FadeScreen(
       }
    }
 
-   if (SDL_MUSTLOCK(gpScreenReal))
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (!g_bThreadedMode)
+#endif
    {
-      SDL_UnlockSurface(gpScreenReal);
+      if (SDL_MUSTLOCK(gpScreenReal))
+      {
+         SDL_UnlockSurface(gpScreenReal);
+      }
    }
 
    //
@@ -1419,7 +1523,7 @@ VIDEO_UpdateSurfacePalette(
 
 --*/
 {
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
 	SDL_SetSurfacePalette(pSurface, gpPalette);
 #else
 	if (gpPalette != NULL)
@@ -1448,10 +1552,48 @@ VIDEO_DrawSurfaceToScreen(
 
 --*/
 {
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
    //
    // Draw the surface to screen.
    //
+   if (g_bThreadedMode)
+   {
+      FRAMEBUFFER_SLOT *pSlot = THREADING_AcquireWriteSlot();
+      if (pSlot != NULL)
+      {
+         int bpp;
+#if SDL_VERSION_ATLEAST(3,0,0)
+         bpp = SDL_BITSPERPIXEL(pSurface->format);
+#else
+         bpp = pSurface->format->BitsPerPixel;
+#endif
+         if (bpp > 8)
+         {
+            //
+            // Direct-color surface (e.g. AVI 16-bit RGB555).
+            // Convert to ARGB8888 directly into the slot's 32-bit surface.
+            //
+            SDL_BlitScaled(pSurface, NULL, pSlot->pDirectSurface, NULL);
+            pSlot->bDirectColor = TRUE;
+         }
+         else
+         {
+            SDL_BlitScaled(pSurface, NULL, gpScreenBak, NULL);
+            memcpy(pSlot->pSurface->pixels, gpScreenBak->pixels, 320 * 200);
+#if SDL_VERSION_ATLEAST(3,0,0)
+            SDL_SetPaletteColors(pSlot->pPalette, gpPalette->colors, 0, 256);
+#else
+            SDL_SetPaletteColors(pSlot->pSurface->format->palette,
+               gpPalette->colors, 0, 256);
+#endif
+            pSlot->bDirectColor = FALSE;
+         }
+         pSlot->wShakeTime = 0;
+         pSlot->wShakeLevel = 0;
+         THREADING_PublishFrame();
+      }
+      return;
+   }
    if (g_bRenderPaused)
    {
       return;
@@ -1480,5 +1622,140 @@ VIDEO_DrawSurfaceToScreen(
 
    SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
    SDL_FreeSurface(pCompatSurface);
+#endif
+}
+
+VOID
+VIDEO_RenderLoop(
+   VOID
+)
+/*++
+  Purpose:
+
+    Main-thread render and input loop, used when g_bThreadedMode is TRUE.
+    Continuously polls SDL events and presents the latest frame produced by
+    the logic thread via the triple buffer.  Runs until g_bThreadQuit is set.
+
+  Parameters:
+
+    None.
+
+  Return value:
+
+    None.
+
+--*/
+{
+#if SDL_VERSION_ATLEAST(2,0,0)
+
+   while (!g_bThreadQuit)
+   {
+      FRAMEBUFFER_SLOT *pSlot;
+
+      PAL_ProcessEvent();
+
+      pSlot = THREADING_AcquireReadSlot();
+      if (pSlot != NULL)
+      {
+         short     offset = 240 - 200;
+         short     screenRealHeight = gpScreenReal->h;
+         short     screenRealY = 0;
+         SDL_Rect  srcrect, dstrect;
+
+         if (!bScaleScreen)
+         {
+            screenRealHeight -= offset;
+            screenRealY = offset / 2;
+         }
+
+         if (pSlot->bDirectColor)
+         {
+            //
+            // Direct-color frame (e.g. AVI) — blit the slot's 32-bit
+            // surface directly to gpScreenReal.
+            //
+            if (SDL_MUSTLOCK(gpScreenReal))
+            {
+               if (SDL_LockSurface(gpScreenReal) < 0)
+               {
+                  THREADING_ReleaseReadSlot();
+                  SDL_Delay(1);
+                  continue;
+               }
+            }
+
+            SDL_SoftStretch(pSlot->pDirectSurface, NULL, gpScreenReal, NULL);
+
+            if (SDL_MUSTLOCK(gpScreenReal))
+            {
+               SDL_UnlockSurface(gpScreenReal);
+            }
+
+            gRenderBackend.RenderCopy();
+            THREADING_ReleaseReadSlot();
+            SDL_Delay(1);
+            continue;
+         }
+
+         //
+         // Indexed-color frame — blit directly from the slot's 8-bit
+         // surface (which already contains pixels and palette set by the
+         // logic thread) to gpScreenReal, eliminating an intermediate copy.
+         //
+         if (SDL_MUSTLOCK(gpScreenReal))
+         {
+            if (SDL_LockSurface(gpScreenReal) < 0)
+            {
+               THREADING_ReleaseReadSlot();
+               SDL_Delay(1);
+               continue;
+            }
+         }
+
+         if (pSlot->wShakeTime != 0)
+         {
+            srcrect.x = 0;
+            srcrect.y = (pSlot->wShakeTime & 1) ? pSlot->wShakeLevel : 0;
+            srcrect.w = 320;
+            srcrect.h = 200 - pSlot->wShakeLevel;
+
+            dstrect.x = 0;
+            dstrect.y = (pSlot->wShakeTime & 1)
+               ? screenRealY
+               : (short)((screenRealY + pSlot->wShakeLevel)
+                 * screenRealHeight / 200);
+            dstrect.w = gpScreenReal->w;
+            dstrect.h = (200 - pSlot->wShakeLevel) * screenRealHeight / 200;
+
+            SDL_SoftStretch(pSlot->pSurface, &srcrect, gpScreenReal, &dstrect);
+
+            dstrect.y = (pSlot->wShakeTime & 1)
+               ? (short)((screenRealY + screenRealHeight - pSlot->wShakeLevel)
+                 * screenRealHeight / 200)
+               : screenRealY;
+            dstrect.h = pSlot->wShakeLevel * screenRealHeight / 200;
+            SDL_FillRect(gpScreenReal, &dstrect, 0);
+         }
+         else
+         {
+            dstrect.x = 0;
+            dstrect.y = screenRealY;
+            dstrect.w = gpScreenReal->w;
+            dstrect.h = screenRealHeight;
+            SDL_SoftStretch(pSlot->pSurface, NULL, gpScreenReal, &dstrect);
+         }
+
+         if (SDL_MUSTLOCK(gpScreenReal))
+         {
+            SDL_UnlockSurface(gpScreenReal);
+         }
+
+         gRenderBackend.RenderCopy();
+
+         THREADING_ReleaseReadSlot();
+      }
+
+      SDL_Delay(1);
+   }
 #endif
 }

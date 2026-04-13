@@ -164,6 +164,7 @@ PAL_FadeOut(
 
    while (TRUE)
    {
+      if (g_bThreadQuit) break;
       //
       // Set the current palette...
       //
@@ -232,6 +233,7 @@ PAL_FadeIn(
    time = SDL_GetTicks() + iDelay * 10 * 60;
    while (TRUE)
    {
+      if (g_bThreadQuit) break;
       //
       // Set the current palette...
       //
@@ -307,14 +309,24 @@ PAL_SceneFade(
    {
       for (i = 0; i < 64; i += iStep)
       {
+         if (g_bThreadQuit) break;
          time = SDL_GetTicks() + 100;
 
          //
          // Generate the scene
          //
          PAL_ClearKeyState();
-         g_InputState.dir = kDirUnknown;
-         g_InputState.prevdir = kDirUnknown;
+         PAL_SetLocalDirection(kDirUnknown);
+#if SDL_VERSION_ATLEAST(2,0,0)
+         if (g_bThreadedMode)
+         {
+            PAL_InputGetLocal_Mutable()->prevdir = kDirUnknown;
+         }
+         else
+#endif
+         {
+            g_InputState.prevdir = kDirUnknown;
+         }
          PAL_GameUpdate(FALSE);
          PAL_MakeScene();
          VIDEO_UpdateScreen(NULL);
@@ -334,6 +346,7 @@ PAL_SceneFade(
 
          while (!SDL_TICKS_PASSED(SDL_GetTicks(), time))
          {
+            if (g_bThreadQuit) break;
             PAL_ProcessEvent();
             SDL_Delay(5);
          }
@@ -343,14 +356,24 @@ PAL_SceneFade(
    {
       for (i = 63; i >= 0; i += iStep)
       {
+         if (g_bThreadQuit) break;
          time = SDL_GetTicks() + 100;
 
          //
          // Generate the scene
          //
          PAL_ClearKeyState();
-         g_InputState.dir = kDirUnknown;
-         g_InputState.prevdir = kDirUnknown;
+         PAL_SetLocalDirection(kDirUnknown);
+#if SDL_VERSION_ATLEAST(2,0,0)
+         if (g_bThreadedMode)
+         {
+            PAL_InputGetLocal_Mutable()->prevdir = kDirUnknown;
+         }
+         else
+#endif
+         {
+            g_InputState.prevdir = kDirUnknown;
+         }
          PAL_GameUpdate(FALSE);
          PAL_MakeScene();
          VIDEO_UpdateScreen(NULL);
@@ -370,6 +393,7 @@ PAL_SceneFade(
 
          while (!SDL_TICKS_PASSED(SDL_GetTicks(), time))
          {
+            if (g_bThreadQuit) break;
             PAL_ProcessEvent();
             SDL_Delay(5);
          }
@@ -425,6 +449,7 @@ PAL_PaletteFade(
    //
    for (i = 0; i < 32; i++)
    {
+      if (g_bThreadQuit) break;
       time = SDL_GetTicks() + (fUpdateScene ? FRAME_TIME : FRAME_TIME / 4);
 
       for (j = 0; j < 256; j++)
@@ -441,8 +466,17 @@ PAL_PaletteFade(
       if (fUpdateScene)
       {
          PAL_ClearKeyState();
-         g_InputState.dir = kDirUnknown;
-         g_InputState.prevdir = kDirUnknown;
+         PAL_SetLocalDirection(kDirUnknown);
+#if SDL_VERSION_ATLEAST(2,0,0)
+         if (g_bThreadedMode)
+         {
+            PAL_InputGetLocal_Mutable()->prevdir = kDirUnknown;
+         }
+         else
+#endif
+         {
+            g_InputState.prevdir = kDirUnknown;
+         }
          PAL_GameUpdate(FALSE);
          PAL_MakeScene();
          VIDEO_UpdateScreen(NULL);
@@ -452,6 +486,7 @@ PAL_PaletteFade(
 
       while (!SDL_TICKS_PASSED(SDL_GetTicks(), time))
       {
+         if (g_bThreadQuit) break;
          PAL_ProcessEvent();
          SDL_Delay(5);
       }
@@ -506,6 +541,7 @@ PAL_ColorFade(
 
       for (i = 0; i < 64; i++)
       {
+         if (g_bThreadQuit) break;
          for (j = 0; j < 256; j++)
          {
             if (newpalette[j].r > palette[j].r)
@@ -548,6 +584,7 @@ PAL_ColorFade(
 
       for (i = 0; i < 64; i++)
       {
+         if (g_bThreadQuit) break;
          for (j = 0; j < 256; j++)
          {
             if (newpalette[j].r > palette[bColor].r)
@@ -632,6 +669,7 @@ PAL_FadeToRed(
 
    for (i = 0; i < 32; i++)
    {
+      if (g_bThreadQuit) break;
       for (j = 0; j < 256; j++)
       {
          if (j == 0x4F)

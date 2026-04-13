@@ -1788,15 +1788,15 @@ PAL_BattleStartFrame(
 
    if (g_Battle.fRepeat)
    {
-      g_InputState.dwKeyPress = kKeyRepeat;
+      PAL_SetLocalKeyPress(kKeyRepeat);
    }
    else if (g_Battle.fForce)
    {
-      g_InputState.dwKeyPress = kKeyForce;
+      PAL_SetLocalKeyPress(kKeyForce);
    }
    else if (g_Battle.fFlee)
    {
-      g_InputState.dwKeyPress = kKeyFlee;
+      PAL_SetLocalKeyPress(kKeyFlee);
    }
 
    //

@@ -24,6 +24,7 @@
 
 #include "common.h"
 #include "palcommon.h"
+#include "threading.h"
 
 typedef struct tagPALINPUTSTATE
 {
@@ -100,6 +101,44 @@ extern volatile PALINPUTSTATE g_InputState;
 
 extern BOOL g_fUseJoystick;
 
+VOID
+PAL_InputSnapshot(
+   VOID
+);
+
+const PALINPUTSTATE *
+PAL_InputGetLocal(
+   VOID
+);
+
+PALINPUTSTATE *
+PAL_InputGetLocal_Mutable(
+   VOID
+);
+
 PAL_C_LINKAGE_END
+
+#if SDL_VERSION_ATLEAST(2,0,0)
+
+// Helpers for writing input state from the logic thread.
+// In threaded mode, writes go to the logic-local copy; in single-threaded mode,
+// they write directly to the shared g_InputState (preserving original behaviour).
+#define PAL_SetLocalKeyPress(key) \
+   do { if (g_bThreadedMode) PAL_InputGetLocal_Mutable()->dwKeyPress = (key); \
+        else g_InputState.dwKeyPress = (key); } while(0)
+
+#define PAL_SetLocalDirection(dir_val) \
+   do { if (g_bThreadedMode) PAL_InputGetLocal_Mutable()->dir = (dir_val); \
+        else g_InputState.dir = (dir_val); } while(0)
+
+#else
+
+#define PAL_SetLocalKeyPress(key) \
+   do { g_InputState.dwKeyPress = (key); } while(0)
+
+#define PAL_SetLocalDirection(dir_val) \
+   do { g_InputState.dir = (dir_val); } while(0)
+
+#endif
 
 #endif

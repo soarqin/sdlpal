@@ -23,6 +23,7 @@
 #define _PALUTILS_H
 
 #include "common.h"
+#include "threading.h"
 
 typedef LPBYTE      LPSPRITE, LPBITMAPRLE;
 typedef LPCBYTE     LPCSPRITE, LPCBITMAPRLE;
@@ -280,6 +281,43 @@ YJ2_Decompress(
 
 PAL_C_LINKAGE_END
 
+#if SDL_VERSION_ATLEAST(2,0,0)
+#define PAL_DelayUntil(t) \
+   if (!g_bThreadedMode) { \
+      PAL_ProcessEvent(); \
+      while (!SDL_TICKS_PASSED(SDL_GetTicks(), (t))) \
+      { \
+         PAL_ProcessEvent(); \
+         SDL_Delay(1); \
+      } \
+   } else { \
+      PAL_ProcessEvent(); \
+      while (!SDL_TICKS_PASSED(SDL_GetTicks(), (t))) \
+      { \
+         if (g_bThreadQuit) break; \
+         PAL_ProcessEvent(); \
+         SDL_Delay(1); \
+      } \
+   }
+
+#define PAL_DelayUntilPC(t) \
+   if (!g_bThreadedMode) { \
+      PAL_ProcessEvent(); \
+      while (SDL_GetPerformanceCounter() < (t)) \
+      { \
+         PAL_ProcessEvent(); \
+         SDL_Delay(1); \
+      } \
+   } else { \
+      PAL_ProcessEvent(); \
+      while (SDL_GetPerformanceCounter() < (t)) \
+      { \
+         if (g_bThreadQuit) break; \
+         PAL_ProcessEvent(); \
+         SDL_Delay(1); \
+      } \
+   }
+#else
 #define PAL_DelayUntil(t) \
    PAL_ProcessEvent(); \
    while (!SDL_TICKS_PASSED(SDL_GetTicks(), (t))) \
@@ -287,16 +325,6 @@ PAL_C_LINKAGE_END
       PAL_ProcessEvent(); \
       SDL_Delay(1); \
    }
-
-#if SDL_VERSION_ATLEAST(2,0,0)
-#define PAL_DelayUntilPC(t) \
-   PAL_ProcessEvent(); \
-   while (SDL_GetPerformanceCounter() < (t)) \
-   { \
-      PAL_ProcessEvent(); \
-      SDL_Delay(1); \
-   }
-#else
 #define SDL_GetPerformanceFrequency() (1000)
 #define SDL_GetPerformanceCounter SDL_GetTicks
 #define PAL_DelayUntilPC PAL_DelayUntil

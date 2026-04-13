@@ -157,6 +157,11 @@ VIDEO_GetScaleMode(
 );
 #endif
 
+VOID
+VIDEO_RenderLoop(
+   VOID
+);
+
 PAL_C_LINKAGE_END
 
 #endif

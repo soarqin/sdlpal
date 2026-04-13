@@ -20,9 +20,46 @@
 //
 
 #include "main.h"
+#include "threading.h"
 #include <math.h>
 
+#if SDL_VERSION_ATLEAST(2,0,0)
+#  if SDL_VERSION_ATLEAST(3,0,0)
+#    define INPUT_ATOMIC_GET  SDL_GetAtomicInt
+#    define INPUT_ATOMIC_SET  SDL_SetAtomicInt
+#    define INPUT_ATOMIC_CAS  SDL_CompareAndSwapAtomicInt
+#  else
+#    define INPUT_ATOMIC_GET  SDL_AtomicGet
+#    define INPUT_ATOMIC_SET  SDL_AtomicSet
+#    define INPUT_ATOMIC_CAS  SDL_AtomicCAS
+#  endif
+#endif
+
+#if SDL_VERSION_ATLEAST(3,0,0)
+#  define PAL_GetCurrentThreadID() SDL_GetCurrentThreadID()
+#else
+#  define PAL_GetCurrentThreadID() SDL_ThreadID()
+#endif
+
 volatile PALINPUTSTATE   g_InputState;
+
+// Logic-thread-local copy of the input state, populated by PAL_InputSnapshot().
+// Only used in threaded mode (g_bThreadedMode == TRUE); zero-initialised at startup.
+static PALINPUTSTATE     g_localInputState;
+
+// ID of the thread that called PAL_InitInput(); SDL events must only be
+// polled on this thread.
+static Uint64            g_dwMainThreadID = 0;
+
+#if SDL_VERSION_ATLEAST(2,0,0)
+// Accumulated key-press bits written by the main thread's event handlers
+// while g_bThreadedMode is TRUE. Consumed atomically by PAL_InputSnapshot().
+#  if SDL_VERSION_ATLEAST(3,0,0)
+static SDL_AtomicInt     g_dwAccumulatedKeys;
+#  else
+static SDL_atomic_t      g_dwAccumulatedKeys;
+#  endif
+#endif
 #if PAL_HAS_JOYSTICKS
 static SDL_Joystick     *g_pJoy = NULL;
 #endif
@@ -89,6 +126,120 @@ static const int g_KeyMap[][2] = {
    { SDLK_f,         kKeyForce },
    { SDLK_s,         kKeyStatus }
 };
+
+//
+// Key dimension masks for the dimensional-overwrite input queue.
+// Keys within the same dimension overwrite each other when accumulated;
+// keys in different dimensions are preserved (OR'd together).
+//
+#define KEYDIM_DIRECTION  (kKeyUp | kKeyDown | kKeyLeft | kKeyRight)
+#define KEYDIM_CONFIRM    (kKeyMenu | kKeySearch)
+
+static DWORD
+PAL_GetKeysDimensionMask(
+   DWORD       keys
+)
+/*++
+  Purpose:
+
+    Return the union of dimension masks covering all key bits present
+    in the given set.
+
+  Parameters:
+
+    [IN]  keys - bitmask of key press bits.
+
+  Return value:
+
+    Dimension mask.
+
+--*/
+{
+   DWORD mask = 0;
+   if (keys & KEYDIM_DIRECTION)
+      mask |= KEYDIM_DIRECTION;
+   if (keys & KEYDIM_CONFIRM)
+      mask |= KEYDIM_CONFIRM;
+   //
+   // Keys outside defined dimensions are each their own dimension (bit),
+   // so their mask is just themselves.
+   //
+   mask |= (keys & ~(KEYDIM_DIRECTION | KEYDIM_CONFIRM));
+   return mask;
+}
+
+static VOID
+PAL_AccumulateKey(
+   INT         key
+)
+/*++
+  Purpose:
+
+    Accumulate a key press with dimensional-overwrite semantics.
+    Within the same dimension the new key replaces any previous key;
+    keys in different dimensions are preserved.
+
+    In threaded mode writes to the atomic accumulator.
+    In single-threaded mode writes directly to g_InputState.dwKeyPress.
+
+  Parameters:
+
+    [IN]  key - the key press bit(s) to accumulate.
+
+  Return value:
+
+    None.
+
+--*/
+{
+   DWORD dwDimMask = PAL_GetKeysDimensionMask((DWORD)key);
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (g_bThreadedMode)
+   {
+      INT iOld, iNew;
+      do {
+         iOld = INPUT_ATOMIC_GET(&g_dwAccumulatedKeys);
+         iNew = (iOld & ~(INT)dwDimMask) | key;
+      } while (!INPUT_ATOMIC_CAS(&g_dwAccumulatedKeys, iOld, iNew));
+      return;
+   }
+#endif
+   g_InputState.dwKeyPress = (g_InputState.dwKeyPress & ~dwDimMask) | key;
+}
+
+static VOID
+PAL_ClearKeyDimension(
+   DWORD       dwDimMask
+)
+/*++
+  Purpose:
+
+    Clear the specified key dimension from the accumulator (threaded)
+    or from g_InputState.dwKeyPress (single-threaded).
+
+  Parameters:
+
+    [IN]  dwDimMask - bitmask of the dimension to clear.
+
+  Return value:
+
+    None.
+
+--*/
+{
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (g_bThreadedMode)
+   {
+      INT iOld, iNew;
+      do {
+         iOld = INPUT_ATOMIC_GET(&g_dwAccumulatedKeys);
+         iNew = iOld & ~(INT)dwDimMask;
+      } while (!INPUT_ATOMIC_CAS(&g_dwAccumulatedKeys, iOld, iNew));
+      return;
+   }
+#endif
+   g_InputState.dwKeyPress &= ~dwDimMask;
+}
 
 #if PAL_HAS_JOYSTICKS
 static VOID
@@ -237,7 +388,7 @@ PAL_KeyDown(
       }
    }
 
-   g_InputState.dwKeyPress |= key;
+   PAL_AccumulateKey(key);
 }
 
 static VOID
@@ -402,9 +553,21 @@ PAL_KeyboardEventFilter(
          else if (lpEvent->key.keysym.sym == SDLK_F4)
          {
             //
-            // Pressed Alt+F4 (Exit program)...
+            // Pressed Alt+F4 (Exit program).
+            // In dual-threaded mode signal both threads to quit cooperatively;
+            // the main thread calls PAL_Shutdown() after joining the logic thread.
+            // In single-threaded mode shut down immediately as before.
             //
-            PAL_Shutdown(0);
+#if SDL_VERSION_ATLEAST(2,0,0)
+            if (g_bThreadedMode)
+            {
+               g_bThreadQuit = TRUE;
+            }
+            else
+#endif
+            {
+               PAL_Shutdown(0);
+            }
          }
       }
       else if (lpEvent->key.keysym.sym == SDLK_p)
@@ -704,34 +867,34 @@ PAL_JoystickEventFilter(
          case SDL_HAT_LEFTUP:
             g_InputState.prevdir = (gpGlobals->fInBattle ? kDirUnknown : g_InputState.dir);
             g_InputState.dir = kDirWest;
-            g_InputState.dwKeyPress = kKeyLeft;
+            PAL_AccumulateKey(kKeyLeft);
             break;
 
          case SDL_HAT_RIGHT:
          case SDL_HAT_RIGHTDOWN:
             g_InputState.prevdir = (gpGlobals->fInBattle ? kDirUnknown : g_InputState.dir);
             g_InputState.dir = kDirEast;
-            g_InputState.dwKeyPress = kKeyRight;
+            PAL_AccumulateKey(kKeyRight);
             break;
 
          case SDL_HAT_UP:
          case SDL_HAT_RIGHTUP:
             g_InputState.prevdir = (gpGlobals->fInBattle ? kDirUnknown : g_InputState.dir);
             g_InputState.dir = kDirNorth;
-            g_InputState.dwKeyPress = kKeyUp;
+            PAL_AccumulateKey(kKeyUp);
             break;
 
          case SDL_HAT_DOWN:
          case SDL_HAT_LEFTDOWN:
             g_InputState.prevdir = (gpGlobals->fInBattle ? kDirUnknown : g_InputState.dir);
             g_InputState.dir = kDirSouth;
-            g_InputState.dwKeyPress = kKeyDown;
+            PAL_AccumulateKey(kKeyDown);
             break;
 
          case SDL_HAT_CENTERED:
             g_InputState.prevdir = (gpGlobals->fInBattle ? kDirUnknown : g_InputState.dir);
             g_InputState.dir = kDirUnknown;
-            g_InputState.dwKeyPress = kKeyNone;
+            PAL_ClearKeyDimension(KEYDIM_DIRECTION);
             break;
       }
       break;
@@ -743,11 +906,11 @@ PAL_JoystickEventFilter(
       switch (lpEvent->jbutton.button & 1)
       {
       case 0:
-         g_InputState.dwKeyPress |= kKeyMenu;
+         PAL_AccumulateKey(kKeyMenu);
          break;
 
       case 1:
-         g_InputState.dwKeyPress |= kKeySearch;
+         PAL_AccumulateKey(kKeySearch);
          break;
       }
       break;
@@ -780,32 +943,32 @@ VOID
    {
       g_InputState.prevdir = g_InputState.dir;
       g_InputState.dir = kDirEast;
-      g_InputState.dwKeyPress |= kKeyRight;
+      PAL_AccumulateKey(kKeyRight);
    }
    else if( g_InputState.axisX == -1 && g_InputState.axisY <= 0 )
    {
       g_InputState.prevdir = g_InputState.dir;
       g_InputState.dir = kDirWest;
-      g_InputState.dwKeyPress |= kKeyLeft;
+      PAL_AccumulateKey(kKeyLeft);
    }
    else if( g_InputState.axisY == 1 && g_InputState.axisX <= 0 )
    {
       g_InputState.prevdir = g_InputState.dir;
       g_InputState.dir = kDirSouth;
-      g_InputState.dwKeyPress |= kKeyDown;
+      PAL_AccumulateKey(kKeyDown);
    }
    else if( g_InputState.axisY == -1 && g_InputState.axisX >= 0 )
    {
       g_InputState.prevdir = g_InputState.dir;
       g_InputState.dir = kDirNorth;
-      g_InputState.dwKeyPress |= kKeyUp;
+      PAL_AccumulateKey(kKeyUp);
    }
    else
    {
       g_InputState.prevdir = g_InputState.dir;
       g_InputState.dir = kDirUnknown;
       if(!input_event_filter)
-         g_InputState.dwKeyPress = kKeyNone;
+         PAL_ClearKeyDimension(KEYDIM_DIRECTION);
    }
 }
 
@@ -924,45 +1087,45 @@ PAL_SetTouchAction(
    {
    case TOUCH_UP:
       g_InputState.dir = kDirNorth;
-      g_InputState.dwKeyPress |= kKeyUp;
+      PAL_AccumulateKey(kKeyUp);
       break;
 
    case TOUCH_DOWN:
       g_InputState.dir = kDirSouth;
-      g_InputState.dwKeyPress |= kKeyDown;
+      PAL_AccumulateKey(kKeyDown);
       break;
 
    case TOUCH_LEFT:
       g_InputState.dir = kDirWest;
-      g_InputState.dwKeyPress |= kKeyLeft;
+      PAL_AccumulateKey(kKeyLeft);
       break;
 
    case TOUCH_RIGHT:
       g_InputState.dir = kDirEast;
-      g_InputState.dwKeyPress |= kKeyRight;
+      PAL_AccumulateKey(kKeyRight);
       break;
 
    case TOUCH_BUTTON1:
-      g_InputState.dwKeyPress |= kKeyForce;
+      PAL_AccumulateKey(kKeyForce);
       break;
 
    case TOUCH_BUTTON2:
-      g_InputState.dwKeyPress |= kKeyMenu;
+      PAL_AccumulateKey(kKeyMenu);
       break;
 
    case TOUCH_BUTTON3:
       if (gpGlobals->fInBattle)
       {
-         g_InputState.dwKeyPress |= kKeyRepeat;
+         PAL_AccumulateKey(kKeyRepeat);
       }
       else
       {
-         g_InputState.dwKeyPress |= kKeyUseItem;
+         PAL_AccumulateKey(kKeyUseItem);
       }
       break;
 
    case TOUCH_BUTTON4:
-      g_InputState.dwKeyPress |= kKeySearch;
+      PAL_AccumulateKey(kKeySearch);
       break;
    }
 }
@@ -1168,9 +1331,22 @@ PAL_EventFilter(
 
    case SDL_QUIT:
       //
-      // clicked on the close button of the window. Quit immediately.
+      // clicked on the close button of the window.
+      // In dual-threaded mode, signal both threads to exit cleanly;
+      // the main thread will call PAL_Shutdown() after joining the logic thread.
+      // In single-threaded mode, shut down immediately as before.
       //
-      PAL_Shutdown(0);
+#if SDL_VERSION_ATLEAST(2,0,0)
+      if (g_bThreadedMode)
+      {
+         g_bThreadQuit = TRUE;
+      }
+      else
+#endif
+      {
+         PAL_Shutdown(0);
+      }
+      break;
    }
 
    PAL_KeyboardEventFilter(lpEvent);
@@ -1203,7 +1379,120 @@ PAL_ClearKeyState(
 
 --*/
 {
-   g_InputState.dwKeyPress = 0;
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (g_bThreadedMode)
+   {
+      g_localInputState.dwKeyPress = 0;
+      g_InputState.dwKeyPress      = 0;   // keep shared state in sync with local copy
+   }
+   else
+#endif
+   {
+      g_InputState.dwKeyPress = 0;
+   }
+}
+
+VOID
+PAL_InputSnapshot(
+   VOID
+)
+/*++
+  Purpose:
+
+    Copy shared input state into the logic-thread-local snapshot.
+    Called by the logic thread once per frame when g_bThreadedMode is TRUE.
+    No-op in single-threaded mode.
+
+  Parameters:
+
+    None.
+
+  Return value:
+
+    None.
+
+--*/
+{
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (!g_bThreadedMode)
+#endif
+   {
+      return;
+   }
+
+#if SDL_VERSION_ATLEAST(2,0,0)
+   //
+   // Copy direction fields from the shared state (written by the event thread).
+   //
+   g_localInputState.dir     = g_InputState.dir;
+   g_localInputState.prevdir = g_InputState.prevdir;
+#if PAL_HAS_JOYSTICKS
+   g_localInputState.axisX   = g_InputState.axisX;
+   g_localInputState.axisY   = g_InputState.axisY;
+#endif
+
+   //
+   // Atomically consume all accumulated key-press bits and merge them into
+   // the shared state using dimensional-overwrite semantics so that keys
+   // consumed earlier by PAL_ProcessEvent (during PAL_DelayUntil) are
+   // correctly overwritten by any newer keys in the same dimension.
+   //
+   INT iKeys;
+   do {
+      iKeys = INPUT_ATOMIC_GET(&g_dwAccumulatedKeys);
+   } while (!INPUT_ATOMIC_CAS(&g_dwAccumulatedKeys, iKeys, 0));
+   if (iKeys != 0)
+   {
+      DWORD dwDimMask = PAL_GetKeysDimensionMask((DWORD)iKeys);
+      g_InputState.dwKeyPress = (g_InputState.dwKeyPress & ~dwDimMask) | (DWORD)iKeys;
+   }
+   g_localInputState.dwKeyPress = g_InputState.dwKeyPress;
+#endif
+}
+
+const PALINPUTSTATE *
+PAL_InputGetLocal(
+   VOID
+)
+/*++
+  Purpose:
+
+    Return a read-only pointer to the logic-thread-local input snapshot.
+
+  Parameters:
+
+    None.
+
+  Return value:
+
+    Const pointer to g_localInputState.
+
+--*/
+{
+   return &g_localInputState;
+}
+
+PALINPUTSTATE *
+PAL_InputGetLocal_Mutable(
+   VOID
+)
+/*++
+  Purpose:
+
+    Return a mutable pointer to the logic-thread-local input snapshot.
+    Used by the PAL_SetLocalKeyPress / PAL_SetLocalDirection macros.
+
+  Parameters:
+
+    None.
+
+  Return value:
+
+    Mutable pointer to g_localInputState.
+
+--*/
+{
+   return &g_localInputState;
 }
 
 VOID
@@ -1225,6 +1514,8 @@ PAL_InitInput(
 
 --*/
 {
+   g_dwMainThreadID = (Uint64)PAL_GetCurrentThreadID();
+
    memset((void *)&g_InputState, 0, sizeof(g_InputState));
    g_InputState.dir = kDirUnknown;
    g_InputState.prevdir = kDirUnknown;
@@ -1323,6 +1614,34 @@ PAL_ProcessEvent(
 
 --*/
 {
+   //
+   // In dual-threaded mode, only the main thread polls SDL events.
+   // The logic thread cannot call SDL_PollEvent, but it still needs to see
+   // key presses accumulated by the main thread's event handlers so that
+   // internal sub-loops (menus, dialogues, transitions, etc.) that call
+   // PAL_ProcessEvent() receive input without stalling.
+   //
+#if SDL_VERSION_ATLEAST(2,0,0)
+   if (g_bThreadedMode && (Uint64)PAL_GetCurrentThreadID() != g_dwMainThreadID)
+   {
+      INT iOld;
+      do {
+         iOld = INPUT_ATOMIC_GET(&g_dwAccumulatedKeys);
+         if (iOld == 0) break;
+      } while (!INPUT_ATOMIC_CAS(&g_dwAccumulatedKeys, iOld, 0));
+      if (iOld != 0)
+      {
+         //
+         // Merge consumed keys with dimensional-overwrite: same-dimension
+         // keys replace previous ones, different-dimension keys are preserved.
+         //
+         DWORD dwDimMask = PAL_GetKeysDimensionMask((DWORD)iOld);
+         g_InputState.dwKeyPress = (g_InputState.dwKeyPress & ~dwDimMask) | (DWORD)iOld;
+      }
+      return;
+   }
+#endif
+
 #if PAL_HAS_JOYSTICKS
    g_InputState.joystickNeedUpdate = FALSE;
 #endif

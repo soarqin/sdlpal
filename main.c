@@ -20,6 +20,8 @@
 //
 
 #include "main.h"
+#include "threading.h"
+#include "game.h"
 #include <setjmp.h>
 
 #if SDL_VERSION_ATLEAST(3,0,0)
@@ -162,8 +164,8 @@ PAL_Shutdown(
    //
    PAL_FreeGlobals();
 
+#if !defined(__EMSCRIPTEN__) && SDL_MAJOR_VERSION < 3
    g_exit_code = exit_code;
-#if !__EMSCRIPTEN__ && SDL_MAJOR_VERSION < 3
    longjmp(g_exit_jmp_buf, 1);
 #else
    SDL_Quit();
@@ -457,6 +459,35 @@ PAL_SplashScreen(
 
 
 
+#if SDL_VERSION_ATLEAST(2,0,0) && !defined(__EMSCRIPTEN__)
+static int SDLCALL
+PAL_GameMainThread(
+   LPVOID pData
+)
+/*++
+  Purpose:
+
+    Thread entry point that runs the game logic on the logic thread.
+
+  Parameters:
+
+    [IN]  pData - Unused.
+
+  Return value:
+
+    0 on normal exit.
+
+--*/
+{
+   (void)pData;
+
+   PAL_GameMain();
+   g_bLogicThreadDone = TRUE;
+   g_bThreadQuit = TRUE;
+   return 0;
+}
+#endif /* SDL_VERSION_ATLEAST(2,0,0) && !defined(__EMSCRIPTEN__) */
+
 int
 main(
    int      argc,
@@ -488,7 +519,7 @@ main(
    UTIL_Platform_Startup(argc,argv);
 #endif
 
-#if !__EMSCRIPTEN__ && SDL_MAJOR_VERSION < 3
+#if !defined(__EMSCRIPTEN__) && SDL_MAJOR_VERSION < 3
    if (setjmp(g_exit_jmp_buf) != 0)
    {
 	   // A longjmp is made, should exit here
@@ -545,10 +576,72 @@ main(
    PAL_TrademarkScreen();
    PAL_SplashScreen();
 
+#if SDL_VERSION_ATLEAST(2,0,0) && !defined(__EMSCRIPTEN__)
+   {
+      SDL_Thread *pLogicThread;
+
+      //
+      // Initialize the triple-buffer and activate the dual-threaded mode.
+      //
+      THREADING_Init();
+      g_bThreadedMode = TRUE;
+
+      //
+      // Spawn the logic thread.  PAL_GameMain() runs entirely inside it.
+      //
+      pLogicThread = THREADING_CreateLogicThread(PAL_GameMainThread, NULL);
+
+      //
+      // The main thread becomes the render + input loop.
+      //
+      VIDEO_RenderLoop();
+
+      //
+      // Render loop has exited.  Give the logic thread up to 300 ms to finish
+      // cleanly (it checks g_bThreadQuit at every PAL_DelayUntil boundary).
+      // If it is stuck in a sub-loop that does not observe the flag (e.g. a
+      // wait-for-key dialog or battle animation), detach and let PAL_Shutdown
+      // terminate the process – the OS will reclaim the thread.
+      //
+      {
+         const Uint32 JOIN_TIMEOUT_MS = 300;
+         Uint32 dwEnd = SDL_GetTicks() + JOIN_TIMEOUT_MS;
+
+         while (!g_bLogicThreadDone &&
+                !SDL_TICKS_PASSED(SDL_GetTicks(), dwEnd))
+         {
+            SDL_Delay(10);
+         }
+      }
+
+      if (g_bLogicThreadDone)
+      {
+         THREADING_JoinLogicThread(pLogicThread);
+         THREADING_Shutdown();
+         PAL_Shutdown(0);
+      }
+      else
+      {
+         //
+         // Logic thread is still running.  Attempting THREADING_Shutdown()
+         // or PAL_Shutdown() here would free resources the logic thread is
+         // still using, causing a deadlock or crash.  Terminate the process
+         // immediately; the OS reclaims all memory and handles.
+         //
+         SDL_DetachThread(pLogicThread);
+#ifdef _WIN32
+         ExitProcess(0);
+#else
+         _exit(0);
+#endif
+      }
+   }
+#else
    //
-   // Run the main game routine
+   // SDL 1.x or Emscripten: run single-threaded.
    //
    PAL_GameMain();
+#endif
 
    //
    // Should not really reach here...
