@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "threading.h"
 
 VOID
 PAL_GameMain(
@@ -57,7 +58,7 @@ PAL_GameMain(
    // Run the main game loop.
    //
    dwTime = SDL_GetTicks();
-   while (TRUE)
+   while (!g_bThreadQuit)
    {
       //
       // Load the game resources if needed.
@@ -70,9 +71,22 @@ PAL_GameMain(
       PAL_ClearKeyState();
 
       //
-      // Wait for the time of one frame. Accept input here.
+      // Wait for the time of one frame.
+      // In dual-threaded mode this is a pure sleep — input is handled
+      // entirely by the render+input thread writing to g_InputState.
       //
       PAL_DelayUntil(dwTime);
+
+      //
+      // In dual-threaded mode, snapshot the shared input state into
+      // the logic-thread-local copy so that PAL_StartFrame() sees it.
+      //
+#if SDL_VERSION_ATLEAST(2,0,0)
+      if (g_bThreadedMode)
+      {
+         PAL_InputSnapshot();
+      }
+#endif
 
       //
       // Set the time of the next frame.

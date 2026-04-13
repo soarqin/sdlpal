@@ -24,20 +24,30 @@
 #define SDL_COMPAT_H
 
 #ifdef __APPLE__
+#if !defined(GL_GLEXT_PROTOTYPES)
 #define GL_GLEXT_PROTOTYPES
+#endif
 #endif
 
 
 #if USE_SDL3
 
+#if !defined(SDL_OK)
 #define SDL_OK      (1)
+#endif
+#if !defined(SDL_FAIL)
 #define SDL_FAIL    (0)
+#endif
 
 #include <SDL3/SDL.h>
 #else
 
+#if !defined(SDL_OK)
 #define SDL_OK      (0)
+#endif
+#if !defined(SDL_FAIL)
 #define SDL_FAIL    (-1)
+#endif
 
 #include <SDL.h>
 #include <SDL_endian.h>
@@ -49,10 +59,17 @@
 #undef SDL_PauseAudio
 extern void SDL_PauseAudio(bool);
 
+#if !defined(SDL_WINDOW_SHOWN)
 #define SDL_WINDOW_SHOWN				0
+#endif
+#undef SDL_WINDOW_FULLSCREEN_DESKTOP
 #define SDL_WINDOW_FULLSCREEN_DESKTOP	( SDL_WINDOW_FULLSCREEN | 0x00001000 )
+#if !defined(SDL_INIT_NOPARACHUTE)
 #define SDL_INIT_NOPARACHUTE			0
+#endif
+#if !defined(SDL_HINT_RENDER_SCALE_QUALITY)
 #define SDL_HINT_RENDER_SCALE_QUALITY	"SDL_RENDER_SCALE_QUALITY"
+#endif
 #undef SDL_WINDOW_ALLOW_HIGHDPI
 #define SDL_WINDOW_ALLOW_HIGHDPI SDL_WINDOW_HIGH_PIXEL_DENSITY
 
@@ -134,7 +151,9 @@ extern int SDL_BlitScaled(SDL_Surface* src, const SDL_Rect* srcrect, SDL_Surface
 #undef SDL_FreePalette
 #define SDL_FreePalette SDL_DestroyPalette
 
+#if !defined(SDL_SWSURFACE)
 #define SDL_SWSURFACE 0UL
+#endif
 #undef SDL_FreeSurface
 #define SDL_FreeSurface SDL_DestroySurface
 #undef SDL_FillRect
@@ -172,7 +191,9 @@ extern size_t SDL_RWread(SDL_IOStream* stream, void* ptr, size_t size, size_t ni
 #undef SDL_FreeRW
 #define SDL_FreeRW(x)
 
+#if !defined(SDL_MIX_MAXVOLUME)
 #define SDL_MIX_MAXVOLUME 128
+#endif
 #undef AUDIO_U8
 #define AUDIO_U8 SDL_AUDIO_U8
 #undef AUDIO_S8
@@ -207,12 +228,19 @@ extern size_t SDL_RWread(SDL_IOStream* stream, void* ptr, size_t size, size_t ni
 
 #undef SDL_mutex
 #define SDL_mutex SDL_Mutex
+#if !defined(SDL_mutexP)
 #define SDL_mutexP SDL_LockMutex
+#endif
+#if !defined(SDL_mutexV)
 #define SDL_mutexV SDL_UnlockMutex
+#endif
 
+#if !defined(SDL_AUDIOCVT_MAX_FILTERS)
 #define SDL_AUDIOCVT_MAX_FILTERS 9
+#endif
 struct SDL_AudioCVT;
 typedef void (SDLCALL* SDL_AudioFilter) (struct SDL_AudioCVT* cvt, SDL_AudioFormat format);
+#if !defined(SDL_AUDIOCVT_PACKED)
 #if defined(__GNUC__) && !defined(__CHERI_PURE_CAPABILITY__)
 /* This structure is 84 bytes on 32-bit architectures, make sure GCC doesn't
    pad it out to 88 bytes to guarantee ABI compatibility between compilers.
@@ -223,6 +251,7 @@ typedef void (SDLCALL* SDL_AudioFilter) (struct SDL_AudioCVT* cvt, SDL_AudioForm
 #define SDL_AUDIOCVT_PACKED __attribute__((packed))
 #else
 #define SDL_AUDIOCVT_PACKED
+#endif
 #endif
 typedef struct SDL_AudioCVT
 {

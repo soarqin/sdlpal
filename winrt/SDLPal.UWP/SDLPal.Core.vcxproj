@@ -352,6 +352,7 @@
     <ClInclude Include="..\..\script.h" />
     <ClInclude Include="..\..\audio.h" />
     <ClInclude Include="..\..\text.h" />
+    <ClInclude Include="..\..\threading.h" />
     <ClInclude Include="..\..\ui.h" />
     <ClInclude Include="..\..\uibattle.h" />
     <ClInclude Include="..\..\uigame.h" />
@@ -415,6 +416,7 @@
     <ClCompile Include="..\..\script.c" />
     <ClCompile Include="..\..\sound.c" />
     <ClCompile Include="..\..\text.c" />
+    <ClCompile Include="..\..\threading.c" />
     <ClCompile Include="..\..\ui.c" />
     <ClCompile Include="..\..\uibattle.c" />
     <ClCompile Include="..\..\uigame.c" />

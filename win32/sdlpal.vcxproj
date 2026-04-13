@@ -339,6 +339,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\text.c" />
+    <ClCompile Include="..\threading.c" />
     <ClCompile Include="..\timidity\common.c" />
     <ClCompile Include="..\timidity\instrum.c" />
     <ClCompile Include="..\timidity\mix.c" />
@@ -421,6 +422,7 @@
     <ClInclude Include="..\audio.h" />
     <ClInclude Include="..\sdl_compat\sdl_compat.h" />
     <ClInclude Include="..\text.h" />
+    <ClInclude Include="..\threading.h" />
     <ClInclude Include="..\timidity\common.h" />
     <ClInclude Include="..\timidity\instrum.h" />
     <ClInclude Include="..\timidity\mix.h" />

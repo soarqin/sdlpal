@@ -32,7 +32,7 @@ static char internal_buffer[PAL_MAX_GLOBAL_BUFFERS + 1][PAL_GLOBAL_BUFFER_SIZE];
 
 void UTIL_MsgBox(char *string)
 {
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
     extern SDL_Window *gpWindow;
     char buffer[300];
     SDL_MessageBoxButtonData buttons[] = { { 0, 0, "OK" } };
@@ -282,14 +282,7 @@ UTIL_Delay(
 )
 {
    unsigned int t = SDL_GetTicks() + ms;
-
-   PAL_ProcessEvent();
-
-   while (!SDL_TICKS_PASSED(SDL_GetTicks(), t))
-   {
-      SDL_Delay(1);
-      PAL_ProcessEvent();
-   }
+   PAL_DelayUntil(t);
 }
 
 void
@@ -312,7 +305,7 @@ TerminateOnError(
 
    fprintf(stderr, "\nFATAL ERROR: %s\n", string);
 
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if SDL_VERSION_ATLEAST(2,0,0)
    {
 	  extern SDL_Window *gpWindow;
 	  char buffer[300];
