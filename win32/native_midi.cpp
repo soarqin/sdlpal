@@ -69,6 +69,7 @@ enum class MidiSystemMessage {
 
 struct MidiMessage
 {
+	virtual ~MidiMessage() {}
 	virtual MMRESULT Send(HMIDIOUT hmo) = 0;
 };
 
@@ -327,7 +328,7 @@ void native_midi_start(NativeMidiSong *song, int looping)
 
 	song->Playing = true;
 	song->Looping = looping ? true : false;
-	song->Thread = std::move(std::thread([](NativeMidiSong *song)->void {
+	song->Thread = std::thread([](NativeMidiSong *song)->void {
 		auto time = std::chrono::system_clock::now();
 		while (song->Playing)
 		{
@@ -345,13 +346,13 @@ void native_midi_start(NativeMidiSong *song, int looping)
 						break;
 				}
 			}
-			else if (song->Playing = song->Looping)
+			else if ((song->Playing = song->Looping))
 			{
 				song->Position = 0;
 				midiOutReset(song->Synthesizer);
 			}
 		}
-	}, song));
+	}, song);
 }
 
 void native_midi_stop(NativeMidiSong *song)
@@ -362,7 +363,7 @@ void native_midi_stop(NativeMidiSong *song)
 		song->Stop.notify_all();
 		if (song->Thread.joinable())
 			song->Thread.join();
-		song->Thread = std::move(std::thread());
+		song->Thread = std::thread();
 		if (song->Synthesizer)
 			midiOutReset(song->Synthesizer);
 	}

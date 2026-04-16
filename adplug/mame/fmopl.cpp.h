@@ -1090,8 +1090,8 @@ public:
 		/* allocate memory block */
 		char *ptr = reinterpret_cast<char *>(::operator new(state_size));
 
+		memset(ptr, 0, state_size);
 		FM_OPL *const OPL = new(ptr) FM_OPL;
-        memset(OPL, 0, state_size);
 
 		ptr += state_size;
 

@@ -239,7 +239,6 @@ void CrixPlayer::rewindReInit(int subsong, bool reinit)
         if(rix_buf)
             free(rix_buf);
         rix_buf = (uint8_t *)calloc(1, length);
-        memset(rix_buf, 0, sizeof(rix_buf));
         fread(rix_buf,length,1,fp);
 #endif
 	}

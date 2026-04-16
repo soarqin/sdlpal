@@ -22,6 +22,12 @@
 #include "main.h"
 #include "threading.h"
 
+#if SDL_VERSION_ATLEAST(3,0,0)
+#define LOCK_FAILED(x) !(x)
+#else
+#define LOCK_FAILED(x) (x) < 0
+#endif
+
 // Screen buffer
 SDL_Surface              *gpScreen           = NULL;
 
@@ -592,7 +598,7 @@ VIDEO_UpdateScreen(
    //
    if (SDL_MUSTLOCK(gpScreenReal))
    {
-      if (SDL_LockSurface(gpScreenReal) < 0)
+      if (LOCK_FAILED(SDL_LockSurface(gpScreenReal)))
          return;
    }
 
@@ -1172,7 +1178,7 @@ VIDEO_SwitchScreen(
       {
          if (SDL_MUSTLOCK(gpScreenReal))
          {
-            if (SDL_LockSurface(gpScreenReal) < 0)
+            if (LOCK_FAILED(SDL_LockSurface(gpScreenReal)))
                return;
          }
 
@@ -1231,7 +1237,7 @@ VIDEO_FadeScreen(
    {
       if (SDL_MUSTLOCK(gpScreenReal))
       {
-         if (SDL_LockSurface(gpScreenReal) < 0)
+         if (LOCK_FAILED(SDL_LockSurface(gpScreenReal)))
             return;
       }
    }
@@ -1676,7 +1682,7 @@ VIDEO_RenderLoop(
             //
             if (SDL_MUSTLOCK(gpScreenReal))
             {
-               if (SDL_LockSurface(gpScreenReal) < 0)
+               if (LOCK_FAILED(SDL_LockSurface(gpScreenReal)))
                {
                   THREADING_ReleaseReadSlot();
                   SDL_Delay(1);
@@ -1704,7 +1710,7 @@ VIDEO_RenderLoop(
          //
          if (SDL_MUSTLOCK(gpScreenReal))
          {
-            if (SDL_LockSurface(gpScreenReal) < 0)
+            if (LOCK_FAILED(SDL_LockSurface(gpScreenReal)))
             {
                THREADING_ReleaseReadSlot();
                SDL_Delay(1);

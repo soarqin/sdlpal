@@ -75,7 +75,7 @@ static int read_config_file(const char *name)
   SDL_RWops *rw;
   char tmp[1024], *w[MAXWORDS], *cp;
   ToneBank *bank=0;
-  int i, j, k, line=0, words;
+  int i, j, k, words;
   static int rcf_count=0;
 
   if (rcf_count>50)
@@ -89,7 +89,6 @@ static int read_config_file(const char *name)
 
   while (RWgets(rw, tmp, sizeof(tmp)))
   {
-    line++;
     words=0;
     w[0]=strtok(tmp, " \t\240");
     if (!w[0]) continue;

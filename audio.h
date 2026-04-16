@@ -56,7 +56,7 @@ typedef struct tagAUDIODEVICE
      (gAudioDevice.id = SDL_OpenAudioDevice(iSelectedDeviceID, (desired))) && \
      (gAudioDevice.stream = SDL_CreateAudioStream(desired, desired)) && \
      SDL_SetAudioStreamGetCallback(gAudioDevice.stream, AUDIO_FillBuffer_Wrapper, NULL) && \
-     SDL_BindAudioStream( gAudioDevice.id, gAudioDevice.stream ) \
+     SDL_BindAudioStream(gAudioDevice.id, gAudioDevice.stream) ? gAudioDevice.id : -1 \
     )
 # define SDL_CloseAudio() SDL_DestroyAudioStream(gAudioDevice.stream)
 # define SDL_LockAudio() SDL_LockAudioStream(gAudioDevice.stream)

@@ -43,11 +43,11 @@ all: $(TARGET)
 
 $(TARGET): $(OBJFILES)
 	@echo [LD] $@
-	@$(HOST)g++ $^ -o $@ $(LDFLAGS)
+	@$(HOST)c++ $^ -o $@ $(LDFLAGS)
 
 gtest-all.o : $(GTEST_DIR)/src/gtest-all.cc %.d
 	@echo [CC] $<
-	@$(HOST)g++ $(DEPFLAGS) $(TEST_CXXFLAGS) -c $< -o $@
+	@$(HOST)c++ $(DEPFLAGS) $(TEST_CXXFLAGS) -c $< -o $@
 	$(POSTCOMPILE)
 
 ${RCFILE_EXT} : ${RCFILE}
@@ -56,12 +56,12 @@ ${RCFILE_EXT} : ${RCFILE}
 
 %$(INTER).o: %.c %$(INTER).d
 	@echo [CC] $<
-	@$(HOST)gcc $(DEPFLAGS) $(CFLAGS) -c $< -o $@
+	@$(HOST)cc $(DEPFLAGS) $(CFLAGS) -c $< -o $@
 	$(POSTCOMPILE)
 
 %$(INTER).o: %.cpp %$(INTER).d
 	@echo [CC] $<
-	@$(HOST)g++ $(DEPFLAGS) $(CXXFLAGS) -c $< -o $@
+	@$(HOST)c++ $(DEPFLAGS) $(CXXFLAGS) -c $< -o $@
 	$(POSTCOMPILE)
 
 %$(INTER).o: %.rc
@@ -70,7 +70,7 @@ ${RCFILE_EXT} : ${RCFILE}
 
 $(TEST_TARGET): $(OBJFILES) $(TEST_OBJFILES) gtest-all.o
 	@echo [LD] $@
-	@$(HOST)g++ $^ -o $@ $(LDFLAGS) -pthread
+	@$(HOST)c++ $^ -o $@ $(LDFLAGS) -pthread
 
 clean:
 	-rm -f $(TARGET) $(TEST_TARGET) $(OBJFILES) $(TEST_OBJFILES) $(DEPFILES) ${RCFILE_EXT}

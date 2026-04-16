@@ -36,8 +36,10 @@
 # include "generated.h"
 #endif
 
+#if !defined(__EMSCRIPTEN__) && SDL_MAJOR_VERSION < 3
 static jmp_buf g_exit_jmp_buf;
 static int g_exit_code = 0;
+#endif
 
 char gExecutablePath[PAL_MAX_PATH];
 

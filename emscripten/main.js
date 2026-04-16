@@ -89,6 +89,8 @@ var Module = {
         Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
     },
     onRuntimeInitialized:function() {
+        window.FS = Module.FS;
+        window.IDBFS = Module.IDBFS;
         onRuntimeInitialized();
     }
 };

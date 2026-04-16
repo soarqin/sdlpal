@@ -361,7 +361,7 @@ INT
 	)
 {
 	int Length;
-	unsigned int len = 0, ptr = 0;
+	unsigned int ptr = 0;
 	unsigned char* src = (unsigned char*)Source + 4;
 	unsigned char* dest;
 	YJ2_Tree tree;
@@ -418,12 +418,10 @@ INT
 			pre = dest - pos - 1;
 			for (i = 0; i < val - 0xfd; i++)
 				*dest++ = *pre++;
-			len += val - 0xfd;
 		}
 		else
 		{
 			*dest++ = (unsigned char)val;
-			len++;
 		}
 	}
 

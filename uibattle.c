@@ -287,7 +287,7 @@ PAL_BattleUIIsActionValid(
 
 --*/
 {
-   WORD     wPlayerRole, w;
+   WORD     wPlayerRole;
    int      i;
 
    wPlayerRole = gpGlobals->rgParty[g_Battle.UI.wCurPlayerIndex].wPlayerRole;

@@ -43,7 +43,6 @@ PAL_GameUpdate(
    WORD            wEventObjectID, wDir;
    int             i;
    LPEVENTOBJECT   p;
-   WORD            wResult;
 
    //
    // Check for trigger events
@@ -378,7 +377,6 @@ PAL_GetSearchTriggerRange(
 --*/
 {
    int                x, y, xOffset, yOffset, i;
-   LPEVENTOBJECT      p;
    TRIGGERRANGE       rgRange;
 
    //
@@ -438,7 +436,7 @@ PAL_Search(
 
 --*/
 {
-   int                x, y, xOffset, yOffset, dx, dy, dh, ex, ey, eh, i, k, l;
+   int                dx, dy, dh, ex, ey, eh, i, k, l;
    LPEVENTOBJECT      p;
    TRIGGERRANGE       rgRange;
 
@@ -629,7 +627,7 @@ PAL_WaitForKeyInternal(
    {
       UTIL_Delay(5);
 
-      if (g_InputState.dwKeyPress && fAllowAnyKey
+      if ((g_InputState.dwKeyPress && fAllowAnyKey)
          || g_InputState.dwKeyPress & (kKeySearch | kKeyMenu))
       {
          break;

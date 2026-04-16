@@ -273,7 +273,7 @@ RandomFloat(
    if (to <= from)
       return from;
 
-   return from + (float)lrand() / (INT_MAX / (to - from));
+   return from + (float)lrand() / ((float)INT_MAX / (to - from));
 }
 
 void
@@ -965,7 +965,7 @@ PAL_FORCE_INLINE char* stoupper(const char* s)
 {
 	char* p = strdup(s);
 	char* p1 = p;
-	while (*p = toupper(*p)) p++;
+	while ((*p = toupper(*p))) p++;
 	return p1;
 }
 PAL_C_LINKAGE char* strcasestr(const char *a, const char *b) {
